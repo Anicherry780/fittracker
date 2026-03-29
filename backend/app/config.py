@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
-    BEDROCK_MODEL_ID: str = "anthropic.claude-sonnet-4-20250514"
+    BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307"
 
     # Email (for password reset)
     SMTP_HOST: str = "smtp.gmail.com"
@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
     RESET_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Render (for self-ping keep-alive)
+    RENDER_EXTERNAL_URL: str = ""
 
     # Frontend URL (for CORS + reset links)
     FRONTEND_URL: str = "http://localhost:3000"

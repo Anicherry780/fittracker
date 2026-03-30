@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
@@ -36,7 +36,6 @@ export default function FoodLogPage() {
   const [showManual, setShowManual] = useState(false);
   const [estimating, setEstimating] = useState(false);
   const [estimated, setEstimated] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null);
   const [form, setForm] = useState({
     meal_type: "lunch",
     food_name: "",
@@ -87,29 +86,9 @@ export default function FoodLogPage() {
     }
   };
 
-  const handleFoodNameOrPortionChange = (field: "food_name" | "portion", value: string) => {
-    const newForm = { ...form, [field]: value };
-    setForm(newForm);
-    setEstimated(false);
-
-    // Auto-estimate when both food name and portion are filled
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    const name = field === "food_name" ? value : form.food_name;
-    const portion = field === "portion" ? value : form.portion;
-    if (name.length >= 2 && portion.length >= 2) {
-      debounceRef.current = setTimeout(() => {
-        estimateNutrition(name, portion);
-      }, 800);
-    }
-  };
-
   const addManual = async () => {
     if (!form.food_name || !form.portion) return;
-    // If not estimated yet, estimate first
-    if (!estimated && !form.calories) {
-      await estimateNutrition(form.food_name, form.portion);
-      return;
-    }
+    if (!form.calories) return; // need calories — either typed or estimated
     try {
       await api.post("/food/log", {
         ...form,
@@ -196,21 +175,31 @@ export default function FoodLogPage() {
                 className="input-field"
                 placeholder="Food name (e.g., samosa, biryani, apple)"
                 value={form.food_name}
-                onChange={(e) => handleFoodNameOrPortionChange("food_name", e.target.value)}
+                onChange={(e) => { setForm({ ...form, food_name: e.target.value }); setEstimated(false); }}
               />
-              <input
-                className="input-field"
-                placeholder="Portion (e.g., 2 pieces, 1 large bowl, 3 medium apples)"
-                value={form.portion}
-                onChange={(e) => handleFoodNameOrPortionChange("portion", e.target.value)}
-              />
-
-              {/* Auto-estimated nutrition (editable) */}
-              {estimating && (
-                <div className="flex items-center gap-2 text-sm text-[var(--text-muted)] py-2">
-                  <Loader2 className="w-4 h-4 animate-spin" /> Estimating nutrition...
-                </div>
-              )}
+              <div className="flex gap-2">
+                <input
+                  className="input-field flex-1"
+                  placeholder="Portion (e.g., 2 pieces, 1 large bowl)"
+                  value={form.portion}
+                  onChange={(e) => { setForm({ ...form, portion: e.target.value }); setEstimated(false); }}
+                />
+                <button
+                  onClick={() => estimateNutrition(form.food_name, form.portion)}
+                  disabled={estimating || !form.food_name || !form.portion}
+                  className="btn-primary flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  {estimating ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4" />
+                  )}
+                  Estimate
+                </button>
+              </div>
+              <p className="text-xs text-[var(--text-muted)]">
+                Know the calories? Type them below. Don&apos;t know? Click <span className="text-[var(--accent-green)]">Estimate</span> to let AI fill it.
+              </p>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -243,16 +232,10 @@ export default function FoodLogPage() {
 
               <button
                 onClick={addManual}
-                disabled={!form.food_name || !form.portion || estimating}
+                disabled={!form.food_name || !form.portion || !form.calories || estimating}
                 className="btn-primary w-full flex items-center justify-center gap-2"
               >
-                {estimating ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Estimating...</>
-                ) : !estimated && !form.calories ? (
-                  <><Search className="w-4 h-4" /> Estimate & Save</>
-                ) : (
-                  <><Plus className="w-4 h-4" /> Save</>
-                )}
+                <Plus className="w-4 h-4" /> Save
               </button>
             </div>
           </div>

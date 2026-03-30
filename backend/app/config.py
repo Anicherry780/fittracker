@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
-    BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307"
+    BEDROCK_MODEL_ID: str = "us.anthropic.claude-3-haiku-20240307-v1:0"
 
     # Email (Gmail SMTP)
     SMTP_HOST: str = "smtp.gmail.com"

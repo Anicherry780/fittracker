@@ -105,6 +105,9 @@ class FoodScanResponse(BaseModel):
     foods: list[FoodItem]
     image_url: Optional[str] = None
     total_calories: float
+    total_protein: float = 0
+    total_fat: float = 0
+    total_carbs: float = 0
 
 
 class FoodLogCreate(BaseModel):

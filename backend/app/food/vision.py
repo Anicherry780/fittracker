@@ -37,13 +37,15 @@ def analyze_food_image(image_bytes: bytes) -> list[FoodItem]:
                         "type": "text",
                         "text": (
                             "Analyze this food image. Identify ALL food items visible. "
+                            "Consider foods from ALL cuisines including Indian (samosa, biryani, dal, roti, paneer, etc.), "
+                            "Asian, Mediterranean, Latin American, and Western dishes. "
                             "For each item, estimate the portion size and nutritional content. "
                             "Respond ONLY with valid JSON in this exact format:\n"
                             '{"foods": [{"name": "food name", "calories": 250, '
                             '"protein_g": 10, "fat_g": 8, "carbs_g": 30, '
                             '"fiber_g": 3, "portion": "1 cup / 200g"}]}\n'
-                            "Be accurate with calorie estimates. Include all visible items "
-                            "including sides, drinks, and condiments."
+                            "Be accurate with calorie estimates and food identification. "
+                            "Include all visible items including sides, drinks, and condiments."
                         ),
                     },
                 ],

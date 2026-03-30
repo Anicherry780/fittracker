@@ -47,6 +47,9 @@ async def scan_food(
         raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
     total_calories = sum(f.calories for f in foods)
+    total_protein = sum(f.protein_g for f in foods)
+    total_fat = sum(f.fat_g for f in foods)
+    total_carbs = sum(f.carbs_g for f in foods)
 
     # Auto-log if requested
     if auto_log:
@@ -67,7 +70,11 @@ async def scan_food(
             db.add(log)
         db.commit()
 
-    return FoodScanResponse(foods=foods, image_url=image_url, total_calories=total_calories)
+    return FoodScanResponse(
+        foods=foods, image_url=image_url,
+        total_calories=total_calories, total_protein=total_protein,
+        total_fat=total_fat, total_carbs=total_carbs,
+    )
 
 
 @router.post("/log", response_model=FoodLogResponse, status_code=201)

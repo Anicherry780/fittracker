@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.config import get_settings
+from app.config import get_settings, Settings
 from app.database import engine, Base
 from app.auth.router import router as auth_router
 from app.food.router import router as food_router
@@ -42,3 +42,14 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/debug/config")
+def debug_config():
+    s = get_settings()
+    return {
+        "jwt_key_prefix": s.JWT_SECRET_KEY[:8] + "...",
+        "db_url_prefix": s.DATABASE_URL[:20] + "..." if s.DATABASE_URL else "EMPTY",
+        "frontend_url": s.FRONTEND_URL,
+        "bedrock_model": s.BEDROCK_MODEL_ID,
+    }

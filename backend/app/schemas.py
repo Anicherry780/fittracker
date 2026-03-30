@@ -110,6 +110,11 @@ class FoodScanResponse(BaseModel):
     total_carbs: float = 0
 
 
+class FoodEstimateRequest(BaseModel):
+    food_name: str
+    portion: str
+
+
 class FoodLogCreate(BaseModel):
     meal_type: str
     food_name: str

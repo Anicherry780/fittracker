@@ -5,12 +5,13 @@ from datetime import datetime, date
 from app.database import get_db
 from app.models import User, FoodLog, FoodTimetable, MealType, DetectionMethod
 from app.schemas import (
-    FoodScanResponse, FoodLogCreate, FoodLogResponse,
+    FoodScanResponse, FoodEstimateRequest, FoodItem,
+    FoodLogCreate, FoodLogResponse,
     TimetableCreate, TimetableResponse,
 )
 from app.auth.utils import get_current_user
 from app.food.cv_processing import preprocess_food_image
-from app.food.vision import analyze_food_image
+from app.food.vision import analyze_food_image, estimate_food_nutrition
 from app.storage.r2 import upload_image
 
 router = APIRouter(prefix="/food", tags=["food"])
@@ -75,6 +76,18 @@ async def scan_food(
         total_calories=total_calories, total_protein=total_protein,
         total_fat=total_fat, total_carbs=total_carbs,
     )
+
+
+@router.post("/estimate", response_model=FoodItem)
+async def estimate_nutrition(
+    data: FoodEstimateRequest,
+    user: User = Depends(get_current_user),
+):
+    """Estimate nutrition for a food item by name and portion (text-only AI)."""
+    try:
+        return estimate_food_nutrition(data.food_name, data.portion)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Estimation failed: {str(e)}")
 
 
 @router.post("/log", response_model=FoodLogResponse, status_code=201)

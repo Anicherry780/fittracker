@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { isAuthenticated } from "@/lib/auth";
 import Navbar from "@/components/Navbar";
-import { Camera, Upload, Loader2, Plus, Check, ImageIcon } from "lucide-react";
+import { Camera, Upload, Loader2, Plus, Check, ImageIcon, Search } from "lucide-react";
 
 interface FoodItem {
   name: string;
@@ -38,6 +38,12 @@ export default function FoodScannerPage() {
   const [loggedItems, setLoggedItems] = useState<Set<number>>(new Set());
   const [mealType, setMealType] = useState("lunch");
 
+  // Fallback manual entry state
+  const [showFallback, setShowFallback] = useState(false);
+  const [fallbackName, setFallbackName] = useState("");
+  const [fallbackPortion, setFallbackPortion] = useState("");
+  const [estimating, setEstimating] = useState(false);
+
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");
@@ -53,6 +59,7 @@ export default function FoodScannerPage() {
     setResult(null);
     setError("");
     setLoggedItems(new Set());
+    setShowFallback(false);
   };
 
   const startCamera = async () => {
@@ -61,7 +68,6 @@ export default function FoodScannerPage() {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
-      // Wait for video element to render
       const waitForVideo = () => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -89,7 +95,6 @@ export default function FoodScannerPage() {
         setSelectedFile(file);
         setPreview(canvas.toDataURL("image/jpeg"));
         setMode("preview");
-        // Stop camera
         const stream = videoRef.current?.srcObject as MediaStream;
         stream?.getTracks().forEach((t) => t.stop());
       }
@@ -97,22 +102,50 @@ export default function FoodScannerPage() {
 
     setResult(null);
     setLoggedItems(new Set());
+    setShowFallback(false);
   };
 
   const analyzeFood = async () => {
     if (!selectedFile) return;
     setAnalyzing(true);
     setError("");
+    setShowFallback(false);
 
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
       const data = await api.postForm<AnalysisResult>("/food/analyze", formData);
       setResult(data);
-    } catch (err: any) {
-      setError(err.message || "Analysis failed. Please try again.");
+    } catch {
+      setShowFallback(true);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const estimateFromName = async () => {
+    if (!fallbackName || !fallbackPortion) return;
+    setEstimating(true);
+    setError("");
+
+    try {
+      const item = await api.post<FoodItem>("/food/estimate", {
+        food_name: fallbackName,
+        portion: fallbackPortion,
+      });
+      setResult({
+        foods: [item],
+        image_url: null,
+        total_calories: item.calories,
+        total_protein: item.protein_g,
+        total_fat: item.fat_g,
+        total_carbs: item.carbs_g,
+      });
+      setShowFallback(false);
+    } catch (err: any) {
+      setError(err.message || "Estimation failed");
+    } finally {
+      setEstimating(false);
     }
   };
 
@@ -142,6 +175,9 @@ export default function FoodScannerPage() {
     setResult(null);
     setError("");
     setLoggedItems(new Set());
+    setShowFallback(false);
+    setFallbackName("");
+    setFallbackPortion("");
     const stream = videoRef.current?.srcObject as MediaStream;
     stream?.getTracks().forEach((t) => t.stop());
   };
@@ -207,16 +243,15 @@ export default function FoodScannerPage() {
             <div className="glass-card p-4">
               <img src={preview} alt="Food preview" className="w-full rounded-xl max-h-80 object-cover" />
               <div className="flex gap-3 mt-4">
-                {/* Meal type selector */}
                 <select
                   value={mealType}
                   onChange={(e) => setMealType(e.target.value)}
                   className="input-field !w-auto"
                 >
-                  <option value="breakfast">🌅 Breakfast</option>
-                  <option value="lunch">☀️ Lunch</option>
-                  <option value="dinner">🌙 Dinner</option>
-                  <option value="snack">🍿 Snack</option>
+                  <option value="breakfast">Breakfast</option>
+                  <option value="lunch">Lunch</option>
+                  <option value="dinner">Dinner</option>
+                  <option value="snack">Snack</option>
                 </select>
                 <button
                   onClick={analyzeFood}
@@ -236,6 +271,44 @@ export default function FoodScannerPage() {
                 <button onClick={reset} className="btn-secondary">New</button>
               </div>
             </div>
+
+            {/* Fallback: AI couldn't detect — ask user to type */}
+            {showFallback && (
+              <div className="glass-card p-6 animate-fade-in">
+                <p className="text-sm text-[var(--text-muted)] mb-3">
+                  Couldn&apos;t identify the food from the image. Tell us what it is and we&apos;ll estimate the nutrition.
+                </p>
+                <div className="space-y-3">
+                  <input
+                    className="input-field"
+                    placeholder="What food is this? (e.g., samosa, biryani, pasta)"
+                    value={fallbackName}
+                    onChange={(e) => setFallbackName(e.target.value)}
+                  />
+                  <input
+                    className="input-field"
+                    placeholder="Portion (e.g., 2 pieces, 1 bowl, 1 large plate)"
+                    value={fallbackPortion}
+                    onChange={(e) => setFallbackPortion(e.target.value)}
+                  />
+                  <button
+                    onClick={estimateFromName}
+                    disabled={estimating || !fallbackName || !fallbackPortion}
+                    className="btn-primary w-full flex items-center justify-center gap-2"
+                  >
+                    {estimating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" /> Estimating...
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-4 h-4" /> Estimate Nutrition
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Results */}
             {result && (

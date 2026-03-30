@@ -57,14 +57,21 @@ export default function FoodScannerPage() {
 
   const startCamera = async () => {
     try {
+      setMode("camera");
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        setMode("camera");
-      }
+      // Wait for video element to render
+      const waitForVideo = () => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        } else {
+          requestAnimationFrame(waitForVideo);
+        }
+      };
+      waitForVideo();
     } catch {
+      setMode("idle");
       setError("Could not access camera. Please use file upload instead.");
     }
   };

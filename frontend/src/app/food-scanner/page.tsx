@@ -114,8 +114,14 @@ export default function FoodScannerPage() {
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      const data = await api.postForm<AnalysisResult>("/food/analyze", formData);
+      // Auto-log all detected items
+      const data = await api.postForm<AnalysisResult>(
+        `/food/analyze?meal_type=${mealType}&auto_log=true`,
+        formData
+      );
       setResult(data);
+      // Mark all items as logged since auto_log=true
+      setLoggedItems(new Set(data.foods.map((_, i) => i)));
     } catch {
       setShowFallback(true);
     } finally {
@@ -313,9 +319,14 @@ export default function FoodScannerPage() {
             {/* Results */}
             {result && (
               <div className="glass-card p-6 animate-fade-in">
-                <h2 className="font-semibold mb-4 text-[var(--accent-green)]">
-                  Detected {result.foods.length} item{result.foods.length !== 1 ? "s" : ""}
-                </h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-semibold text-[var(--accent-green)]">
+                    Detected {result.foods.length} item{result.foods.length !== 1 ? "s" : ""}
+                  </h2>
+                  <span className="text-xs text-[var(--text-muted)] bg-[var(--accent-green)]/10 px-2 py-1 rounded-lg">
+                    Auto-logged to {mealType}
+                  </span>
+                </div>
                 <div className="space-y-3">
                   {result.foods.map((food, idx) => (
                     <div

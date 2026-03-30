@@ -1,130 +1,86 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import datetime, timedelta
+from sqlalchemy.orm import Session
+
 from app.database import get_db
 from app.models import User
 from app.schemas import (
-    UserRegister, UserLogin, TokenResponse, UserResponse,
-    ForgotPasswordRequest, ResetPasswordRequest, UserProfileUpdate
+    UserRegister, UserLogin, UserResponse, UserUpdate,
+    TokenResponse, ForgotPassword, ResetPassword,
 )
 from app.auth.utils import (
     hash_password, verify_password, create_access_token,
-    create_reset_token, get_current_user
+    create_reset_token, verify_reset_token, get_current_user,
 )
 from app.auth.email import send_reset_email
-from app.config import get_settings
 
-router = APIRouter(prefix="/auth", tags=["Authentication"])
-settings = get_settings()
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
-    # Check if username exists
-    result = await db.execute(select(User).where(User.username == data.username))
-    if result.scalar_one_or_none():
+@router.post("/register", response_model=TokenResponse, status_code=201)
+def register(data: UserRegister, db: Session = Depends(get_db)):
+    if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(status_code=400, detail="Username already taken")
-
-    # Check if email exists
-    result = await db.execute(select(User).where(User.email == data.email))
-    if result.scalar_one_or_none():
+    if db.query(User).filter(User.email == data.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Create user
     user = User(
         username=data.username,
         email=data.email,
         password_hash=hash_password(data.password),
     )
     db.add(user)
-    await db.flush()
-    await db.refresh(user)
+    db.commit()
+    db.refresh(user)
 
-    # Generate token
-    token = create_access_token(str(user.id))
-
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+    token = create_access_token({"sub": user.id})
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    # Find user by username
-    result = await db.execute(select(User).where(User.username == data.username.lower()))
-    user = result.scalar_one_or_none()
-
+def login(data: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == data.username.lower()).first()
     if not user or not verify_password(data.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token = create_access_token(str(user.id))
+    token = create_access_token({"sub": user.id})
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
 
-    return TokenResponse(
-        access_token=token,
-        user=UserResponse.model_validate(user),
-    )
+
+@router.post("/forgot-password")
+async def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if user:
+        token = create_reset_token(user.email)
+        await send_reset_email(user.email, token)
+    # Always return success to prevent email enumeration
+    return {"message": "If that email exists, a reset link has been sent"}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPassword, db: Session = Depends(get_db)):
+    email = verify_reset_token(data.token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    return {"message": "Password reset successfully"}
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(get_current_user)):
+def get_me(user: User = Depends(get_current_user)):
     return UserResponse.model_validate(user)
 
 
 @router.patch("/profile", response_model=UserResponse)
-async def update_profile(
-    data: UserProfileUpdate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    update_data = data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(user, key, value)
-    await db.flush()
-    await db.refresh(user)
+@router.patch("/me", response_model=UserResponse)
+def update_me(data: UserUpdate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    db.commit()
+    db.refresh(user)
     return UserResponse.model_validate(user)
-
-
-@router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == data.email))
-    user = result.scalar_one_or_none()
-
-    # Always return success to prevent email enumeration
-    if not user:
-        return {"message": "If an account with that email exists, a reset link has been sent."}
-
-    # Generate reset token
-    token = create_reset_token()
-    user.reset_token = token
-    user.reset_token_expires = datetime.utcnow() + timedelta(
-        minutes=settings.RESET_TOKEN_EXPIRE_MINUTES
-    )
-    await db.flush()
-
-    # Send email
-    await send_reset_email(user.email, token)
-
-    return {"message": "If an account with that email exists, a reset link has been sent."}
-
-
-@router.post("/reset-password")
-async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(User).where(
-            User.reset_token == data.token,
-            User.reset_token_expires > datetime.utcnow(),
-        )
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
-
-    user.password_hash = hash_password(data.new_password)
-    user.reset_token = None
-    user.reset_token_expires = None
-    await db.flush()
-
-    return {"message": "Password has been reset successfully. You can now log in."}

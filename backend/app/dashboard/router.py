@@ -1,136 +1,96 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, func
+from sqlalchemy.orm import Session
 from datetime import datetime, date, timedelta
-from typing import Optional
+
 from app.database import get_db
 from app.models import User, FoodLog, ExerciseLog
-from app.schemas import DailySummaryResponse, WeeklyStatsResponse
+from app.schemas import DailySummary, WeeklySummary, FoodLogResponse, ExerciseLogResponse
 from app.auth.utils import get_current_user
-from app.dashboard.calculator import calculate_tdee, calculate_calorie_balance, calculate_macro_targets
+from app.dashboard.calculator import calculate_tdee
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-async def _get_daily_data(db: AsyncSession, user: User, target_date: date) -> dict:
-    """Get aggregated daily food and exercise data."""
+def _get_daily_summary(user: User, target_date: date, db: Session) -> DailySummary:
     day_start = datetime.combine(target_date, datetime.min.time())
     day_end = datetime.combine(target_date, datetime.max.time())
 
-    # Food totals
-    food_result = await db.execute(
-        select(
-            func.coalesce(func.sum(FoodLog.calories), 0).label("total_cal"),
-            func.coalesce(func.sum(FoodLog.protein_g), 0).label("total_protein"),
-            func.coalesce(func.sum(FoodLog.fat_g), 0).label("total_fat"),
-            func.coalesce(func.sum(FoodLog.carbs_g), 0).label("total_carbs"),
-        ).where(
-            and_(FoodLog.user_id == user.id, FoodLog.logged_at >= day_start, FoodLog.logged_at < day_end)
+    meals = db.query(FoodLog).filter(
+        FoodLog.user_id == user.id,
+        FoodLog.logged_at >= day_start,
+        FoodLog.logged_at <= day_end,
+    ).order_by(FoodLog.logged_at).all()
+
+    exercises = db.query(ExerciseLog).filter(
+        ExerciseLog.user_id == user.id,
+        ExerciseLog.logged_at >= day_start,
+        ExerciseLog.logged_at <= day_end,
+    ).order_by(ExerciseLog.logged_at).all()
+
+    calories_consumed = sum(m.calories for m in meals)
+    calories_burned = sum(e.calories_burned for e in exercises)
+
+    # Calculate calorie target
+    if user.calorie_goal:
+        calorie_target = user.calorie_goal
+    elif user.weight_kg and user.height_cm and user.age and user.gender:
+        calorie_target = calculate_tdee(
+            user.weight_kg, user.height_cm, user.age,
+            user.gender, user.activity_level or 1.55,
         )
-    )
-    food = food_result.one()
+    else:
+        calorie_target = 2000
 
-    # Exercise totals
-    exercise_result = await db.execute(
-        select(
-            func.coalesce(func.sum(ExerciseLog.calories_burned), 0).label("total_burned"),
-        ).where(
-            and_(ExerciseLog.user_id == user.id, ExerciseLog.logged_at >= day_start, ExerciseLog.logged_at < day_end)
-        )
-    )
-    exercise = exercise_result.one()
+    remaining = calorie_target + calories_burned - calories_consumed
 
-    # TDEE
-    tdee = calculate_tdee(
-        weight_kg=user.weight_kg or 70.0,
-        height_cm=user.height_cm or 170.0,
-        age=user.age or 25,
-        gender=user.gender or "male",
-        activity_level=user.activity_level or 1.55,
-    )
-
-    calorie_target = user.calorie_target or tdee
-    total_calories_in = float(food.total_cal)
-    total_burned = float(exercise.total_burned)
-    remaining = calorie_target + total_burned - total_calories_in
+    tdee = calorie_target
 
     return {
-        "date": target_date,
-        "total_calories_in": round(total_calories_in, 1),
-        "total_calories_burned": round(total_burned, 1),
-        "total_protein": round(float(food.total_protein), 1),
-        "total_fat": round(float(food.total_fat), 1),
-        "total_carbs": round(float(food.total_carbs), 1),
-        "net_calories": round(total_calories_in - tdee, 1),
-        "calorie_target": round(calorie_target, 1),
+        "date": target_date.isoformat(),
+        "total_calories_in": round(calories_consumed, 1),
+        "total_calories_burned": round(calories_burned, 1),
+        "total_protein": round(sum(m.protein_g for m in meals), 1),
+        "total_fat": round(sum(m.fat_g for m in meals), 1),
+        "total_carbs": round(sum(m.carbs_g for m in meals), 1),
+        "net_calories": round(calories_consumed - calories_burned, 1),
+        "calorie_target": calorie_target,
         "remaining_calories": round(remaining, 1),
-        "tdee": round(tdee, 1),
+        "tdee": tdee,
+        "meals": [FoodLogResponse.model_validate(m) for m in meals],
+        "exercises": [ExerciseLogResponse.model_validate(e) for e in exercises],
     }
 
 
-@router.get("/today", response_model=DailySummaryResponse)
-async def get_today_summary(
+@router.get("/today")
+@router.get("/daily")
+def get_daily_summary(
+    target_date: date = Query(None),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Get today's calorie and nutrition summary."""
-    data = await _get_daily_data(db, user, date.today())
-    return DailySummaryResponse(**data)
+    if not target_date:
+        target_date = date.today()
+    return _get_daily_summary(user, target_date, db)
 
 
-@router.get("/day/{target_date}", response_model=DailySummaryResponse)
-async def get_day_summary(
-    target_date: date,
+@router.get("/weekly", response_model=WeeklySummary)
+def get_weekly_summary(
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Get summary for a specific date."""
-    data = await _get_daily_data(db, user, target_date)
-    return DailySummaryResponse(**data)
-
-
-@router.get("/week", response_model=WeeklyStatsResponse)
-async def get_weekly_stats(
-    start_date: Optional[date] = Query(default=None, description="Start of week (defaults to this Monday)"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get weekly nutrition and exercise stats."""
-    if not start_date:
-        today = date.today()
-        start_date = today - timedelta(days=today.weekday())  # Monday
-
+    today = date.today()
     days = []
-    for i in range(7):
-        day = start_date + timedelta(days=i)
-        day_data = await _get_daily_data(db, user, day)
-        days.append(DailySummaryResponse(**day_data))
+    for i in range(6, -1, -1):
+        day = today - timedelta(days=i)
+        days.append(_get_daily_summary(user, day, db))
 
-    # Calculate averages
-    total_days = len(days)
-    avg_in = sum(d.total_calories_in for d in days) / total_days
-    avg_burned = sum(d.total_calories_burned for d in days) / total_days
-    avg_protein = sum(d.total_protein for d in days) / total_days
+    total_in = sum(d.calories_consumed for d in days)
+    total_burned = sum(d.calories_burned for d in days)
+    total_workouts = sum(len(d.exercises) for d in days)
 
-    return WeeklyStatsResponse(
+    return WeeklySummary(
         days=days,
-        avg_calories_in=round(avg_in, 1),
-        avg_calories_burned=round(avg_burned, 1),
-        avg_protein=round(avg_protein, 1),
+        avg_calories_in=round(total_in / 7, 1),
+        avg_calories_burned=round(total_burned / 7, 1),
+        total_workouts=total_workouts,
     )
-
-
-@router.get("/macros")
-async def get_macro_targets(
-    goal: str = Query(default="maintain", description="Goal: lose, maintain, gain"),
-    user: User = Depends(get_current_user),
-):
-    """Get recommended daily macro targets."""
-    tdee = calculate_tdee(
-        weight_kg=user.weight_kg or 70.0,
-        height_cm=user.height_cm or 170.0,
-        age=user.age or 25,
-        gender=user.gender or "male",
-        activity_level=user.activity_level or 1.55,
-    )
-    return calculate_macro_targets(tdee, goal)

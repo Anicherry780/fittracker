@@ -1,102 +1,70 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy.orm import Session
 from datetime import datetime, date
-from typing import Optional, List
-from uuid import UUID
+
 from app.database import get_db
 from app.models import User, ExerciseLog
-from app.schemas import ExerciseLogCreate, ExerciseLogResponse, ExerciseInfo
+from app.schemas import ExerciseLogCreate, ExerciseLogResponse
 from app.auth.utils import get_current_user
 from app.exercise.calories import calculate_calories_burned, get_exercise_list
 
-router = APIRouter(prefix="/exercise", tags=["Exercise"])
+router = APIRouter(prefix="/exercise", tags=["exercise"])
 
 
-@router.get("/list", response_model=List[dict])
-async def list_exercises():
-    """Get all available exercises with MET values and categories."""
+@router.get("/list")
+@router.get("/types")
+def list_exercise_types():
+    """Get all available exercise types with MET values."""
     return get_exercise_list()
 
 
-@router.post("/log", response_model=ExerciseLogResponse)
-async def log_exercise(
+@router.post("/log", response_model=ExerciseLogResponse, status_code=201)
+def log_exercise(
     data: ExerciseLogCreate,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Log an exercise session with auto-calculated calorie burn."""
-    # Calculate calories burned using MET formula
-    weight = user.weight_kg or 70.0  # Default 70kg if not set
-    calories_burned = calculate_calories_burned(
-        data.exercise_type, data.duration_min, weight
-    )
+    weight = user.weight_kg or 70.0
+    calories = calculate_calories_burned(data.exercise_type, data.duration_min, weight)
 
-    exercise_log = ExerciseLog(
+    log = ExerciseLog(
         user_id=user.id,
         exercise_type=data.exercise_type,
         duration_min=data.duration_min,
-        calories_burned=calories_burned,
+        calories_burned=calories,
         reps=data.reps,
         sets=data.sets,
     )
-    db.add(exercise_log)
-    await db.flush()
-    await db.refresh(exercise_log)
-    return ExerciseLogResponse.model_validate(exercise_log)
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
 
 
-@router.get("/log", response_model=List[ExerciseLogResponse])
-async def get_exercise_logs(
-    log_date: Optional[date] = Query(default=None),
+@router.get("/log", response_model=list[ExerciseLogResponse])
+def get_exercise_logs(
+    target_date: date = Query(None),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Get exercise logs for a specific date."""
-    target_date = log_date or date.today()
-
-    query = select(ExerciseLog).where(
-        and_(
-            ExerciseLog.user_id == user.id,
+    query = db.query(ExerciseLog).filter(ExerciseLog.user_id == user.id)
+    if target_date:
+        query = query.filter(
             ExerciseLog.logged_at >= datetime.combine(target_date, datetime.min.time()),
             ExerciseLog.logged_at < datetime.combine(target_date, datetime.max.time()),
         )
-    ).order_by(ExerciseLog.logged_at)
-
-    result = await db.execute(query)
-    logs = result.scalars().all()
-    return [ExerciseLogResponse.model_validate(log) for log in logs]
+    return query.order_by(ExerciseLog.logged_at.desc()).all()
 
 
 @router.delete("/log/{log_id}")
-async def delete_exercise_log(
-    log_id: UUID,
+def delete_exercise_log(
+    log_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Delete an exercise log."""
-    result = await db.execute(
-        select(ExerciseLog).where(ExerciseLog.id == log_id, ExerciseLog.user_id == user.id)
-    )
-    log = result.scalar_one_or_none()
+    log = db.query(ExerciseLog).filter(ExerciseLog.id == log_id, ExerciseLog.user_id == user.id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Exercise log not found")
-    await db.delete(log)
-    return {"message": "Exercise log deleted"}
-
-
-@router.get("/calories-estimate")
-async def estimate_calories(
-    exercise_type: str = Query(...),
-    duration_min: float = Query(...),
-    user: User = Depends(get_current_user),
-):
-    """Preview calorie burn without logging."""
-    weight = user.weight_kg or 70.0
-    calories = calculate_calories_burned(exercise_type, duration_min, weight)
-    return {
-        "exercise_type": exercise_type,
-        "duration_min": duration_min,
-        "weight_kg": weight,
-        "estimated_calories_burned": calories,
-    }
+    db.delete(log)
+    db.commit()
+    return {"message": "Deleted"}

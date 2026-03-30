@@ -1,187 +1,156 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy.orm import Session
 from datetime import datetime, date
-from typing import Optional, List
-from uuid import UUID
+
 from app.database import get_db
 from app.models import User, FoodLog, FoodTimetable, MealType, DetectionMethod
 from app.schemas import (
-    FoodLogCreate, FoodLogResponse, FoodAnalysisResponse,
-    TimetableCreate, TimetableResponse
+    FoodScanResponse, FoodLogCreate, FoodLogResponse,
+    TimetableCreate, TimetableResponse,
 )
 from app.auth.utils import get_current_user
 from app.food.cv_processing import preprocess_food_image
 from app.food.vision import analyze_food_image
 from app.storage.r2 import upload_image
-import logging
 
-logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/food", tags=["Food"])
+router = APIRouter(prefix="/food", tags=["food"])
 
 
-@router.post("/analyze", response_model=FoodAnalysisResponse)
-async def analyze_food(
+@router.post("/analyze", response_model=FoodScanResponse)
+@router.post("/scan", response_model=FoodScanResponse)
+async def scan_food(
     file: UploadFile = File(...),
+    meal_type: str = Query("snack"),
+    auto_log: bool = Query(False),
     user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """
-    Upload a food image for AI-powered analysis.
-    Pipeline: CV preprocessing → R2 upload → Claude Vision → nutrition JSON
-    """
-    # Validate file type
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="File must be an image")
-
-    # Read image
-    image_bytes = await file.read()
-    if len(image_bytes) > 10 * 1024 * 1024:  # 10MB limit
+    """Upload a food image → CV preprocessing → AI analysis → nutrition data."""
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image must be under 10MB")
 
-    # CV preprocessing pipeline
-    try:
-        processed_bytes, quality = preprocess_food_image(image_bytes)
-        logger.info(f"Image preprocessed: {quality}")
-    except Exception as e:
-        logger.warning(f"Preprocessing failed, using original: {e}")
-        processed_bytes = image_bytes
+    # CV preprocessing
+    processed = preprocess_food_image(contents)
 
     # Upload to R2
+    image_url = None
     try:
-        image_url = await upload_image(processed_bytes, file.content_type or "image/jpeg")
-    except Exception as e:
-        logger.warning(f"R2 upload failed, continuing without: {e}")
-        image_url = None
+        image_url = upload_image(processed, file.content_type or "image/jpeg")
+    except Exception:
+        pass  # R2 upload is optional — don't block the scan
 
-    # Analyze with Claude Vision
+    # AI analysis via Bedrock
     try:
-        result = await analyze_food_image(processed_bytes, file.content_type or "image/jpeg")
+        foods = analyze_food_image(processed)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Food analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=f"AI analysis failed: {str(e)}")
 
-    result["image_url"] = image_url
-    return FoodAnalysisResponse(**result)
+    total_calories = sum(f.calories for f in foods)
+
+    # Auto-log if requested
+    if auto_log:
+        for food in foods:
+            log = FoodLog(
+                user_id=user.id,
+                meal_type=meal_type,
+                food_name=food.name,
+                calories=food.calories,
+                protein_g=food.protein_g,
+                fat_g=food.fat_g,
+                carbs_g=food.carbs_g,
+                fiber_g=food.fiber_g,
+                portion=food.portion,
+                image_url=image_url,
+                detected_by=DetectionMethod.ai,
+            )
+            db.add(log)
+        db.commit()
+
+    return FoodScanResponse(foods=foods, image_url=image_url, total_calories=total_calories)
 
 
-@router.post("/log", response_model=FoodLogResponse)
-async def create_food_log(
+@router.post("/log", response_model=FoodLogResponse, status_code=201)
+def create_food_log(
     data: FoodLogCreate,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Log a food item (manual or from AI analysis)."""
-    food_log = FoodLog(
-        user_id=user.id,
-        meal_type=MealType(data.meal_type),
-        food_name=data.food_name,
-        calories=data.calories,
-        protein_g=data.protein_g,
-        fat_g=data.fat_g,
-        carbs_g=data.carbs_g,
-        portion=data.portion,
-        image_url=data.image_url,
-        detected_by=DetectionMethod(data.detected_by),
-    )
-    db.add(food_log)
-    await db.flush()
-    await db.refresh(food_log)
-    return FoodLogResponse.model_validate(food_log)
+    log = FoodLog(user_id=user.id, **data.model_dump())
+    db.add(log)
+    db.commit()
+    db.refresh(log)
+    return log
 
 
-@router.get("/log", response_model=List[FoodLogResponse])
-async def get_food_logs(
-    log_date: Optional[date] = Query(default=None, description="Date to filter (YYYY-MM-DD)"),
-    meal_type: Optional[str] = Query(default=None),
+@router.get("/log", response_model=list[FoodLogResponse])
+def get_food_logs(
+    target_date: date = Query(None),
+    log_date: date = Query(None),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Get food logs for a specific date."""
-    target_date = log_date or date.today()
-
-    query = select(FoodLog).where(
-        and_(
-            FoodLog.user_id == user.id,
-            FoodLog.logged_at >= datetime.combine(target_date, datetime.min.time()),
-            FoodLog.logged_at < datetime.combine(target_date, datetime.max.time()),
+    query = db.query(FoodLog).filter(FoodLog.user_id == user.id)
+    filter_date = target_date or log_date
+    if filter_date:
+        query = query.filter(
+            FoodLog.logged_at >= datetime.combine(filter_date, datetime.min.time()),
+            FoodLog.logged_at < datetime.combine(filter_date, datetime.max.time()),
         )
-    )
-    if meal_type:
-        query = query.where(FoodLog.meal_type == MealType(meal_type))
-
-    query = query.order_by(FoodLog.logged_at)
-    result = await db.execute(query)
-    logs = result.scalars().all()
-    return [FoodLogResponse.model_validate(log) for log in logs]
+    return query.order_by(FoodLog.logged_at.desc()).all()
 
 
 @router.delete("/log/{log_id}")
-async def delete_food_log(
-    log_id: UUID,
+def delete_food_log(
+    log_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Delete a food log entry."""
-    result = await db.execute(
-        select(FoodLog).where(FoodLog.id == log_id, FoodLog.user_id == user.id)
-    )
-    log = result.scalar_one_or_none()
+    log = db.query(FoodLog).filter(FoodLog.id == log_id, FoodLog.user_id == user.id).first()
     if not log:
         raise HTTPException(status_code=404, detail="Food log not found")
-    await db.delete(log)
-    return {"message": "Food log deleted"}
+    db.delete(log)
+    db.commit()
+    return {"message": "Deleted"}
 
 
-# ─── Timetable ───
-
-@router.post("/timetable", response_model=TimetableResponse)
-async def create_timetable_entry(
+# -- Timetable --
+@router.post("/timetable", response_model=TimetableResponse, status_code=201)
+def create_timetable_entry(
     data: TimetableCreate,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Add a planned meal to the timetable."""
-    entry = FoodTimetable(
-        user_id=user.id,
-        day_of_week=data.day_of_week,
-        meal_type=MealType(data.meal_type),
-        planned_food=data.planned_food,
-        planned_calories=data.planned_calories,
-        planned_time=data.planned_time,
-    )
+    entry = FoodTimetable(user_id=user.id, **data.model_dump())
     db.add(entry)
-    await db.flush()
-    await db.refresh(entry)
-    return TimetableResponse.model_validate(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
-@router.get("/timetable", response_model=List[TimetableResponse])
-async def get_timetable(
-    day: Optional[int] = Query(default=None, description="Day of week (0=Mon, 6=Sun)"),
+@router.get("/timetable", response_model=list[TimetableResponse])
+def get_timetable(
+    day: int = Query(None, ge=0, le=6),
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Get meal timetable entries."""
-    query = select(FoodTimetable).where(FoodTimetable.user_id == user.id)
+    query = db.query(FoodTimetable).filter(FoodTimetable.user_id == user.id)
     if day is not None:
-        query = query.where(FoodTimetable.day_of_week == day)
-    query = query.order_by(FoodTimetable.day_of_week, FoodTimetable.planned_time)
-    result = await db.execute(query)
-    entries = result.scalars().all()
-    return [TimetableResponse.model_validate(e) for e in entries]
+        query = query.filter(FoodTimetable.day_of_week == day)
+    return query.order_by(FoodTimetable.day_of_week, FoodTimetable.planned_time).all()
 
 
 @router.delete("/timetable/{entry_id}")
-async def delete_timetable_entry(
-    entry_id: UUID,
+def delete_timetable_entry(
+    entry_id: int,
     user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
 ):
-    """Delete a timetable entry."""
-    result = await db.execute(
-        select(FoodTimetable).where(FoodTimetable.id == entry_id, FoodTimetable.user_id == user.id)
-    )
-    entry = result.scalar_one_or_none()
+    entry = db.query(FoodTimetable).filter(
+        FoodTimetable.id == entry_id, FoodTimetable.user_id == user.id
+    ).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Timetable entry not found")
-    await db.delete(entry)
-    return {"message": "Timetable entry deleted"}
+    db.delete(entry)
+    db.commit()
+    return {"message": "Deleted"}

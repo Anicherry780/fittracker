@@ -3,18 +3,17 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # App
     APP_NAME: str = "FitTracker API"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
 
-    # Database (Neon PostgreSQL)
+    # Database
     DATABASE_URL: str = ""
 
     # JWT
-    JWT_SECRET_KEY: str = ""
+    JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
 
     # Cloudflare R2
     R2_ACCOUNT_ID: str = ""
@@ -23,30 +22,23 @@ class Settings(BaseSettings):
     R2_BUCKET_NAME: str = "fittracker"
     R2_PUBLIC_URL: str = ""
 
-    # AWS Bedrock (Claude Vision)
+    # AWS Bedrock
     AWS_ACCESS_KEY_ID: str = ""
     AWS_SECRET_ACCESS_KEY: str = ""
     AWS_REGION: str = "us-east-1"
     BEDROCK_MODEL_ID: str = "anthropic.claude-3-haiku-20240307"
 
-    # Email (for password reset)
+    # Email (Gmail SMTP)
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
-    RESET_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # Render (for self-ping keep-alive)
-    RENDER_EXTERNAL_URL: str = ""
-
-    # Frontend URL (for CORS + reset links)
+    # Frontend
     FRONTEND_URL: str = "http://localhost:3000"
 
-    model_config = {
-        "env_file": ".env",
-        "env_file_encoding": "utf-8",
-        "case_sensitive": True,
-    }
+    class Config:
+        env_file = ".env"
 
 
 @lru_cache()

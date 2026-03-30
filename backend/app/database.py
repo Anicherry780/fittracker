@@ -1,44 +1,26 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from app.config import get_settings
 
 settings = get_settings()
 
-# Neon requires SSL; asyncpg driver
-DATABASE_URL = settings.DATABASE_URL.replace(
-    "postgresql://", "postgresql+asyncpg://"
-).replace("postgres://", "postgresql+asyncpg://")
-
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=settings.DEBUG,
+engine = create_engine(
+    settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://"),
+    pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
 )
 
-async_session = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 class Base(DeclarativeBase):
     pass
 
 
-async def get_db() -> AsyncSession:
-    async with async_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
-        finally:
-            await session.close()
-
-
-async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

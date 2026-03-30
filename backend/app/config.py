@@ -1,5 +1,5 @@
+import os
 from pydantic_settings import BaseSettings
-from functools import lru_cache
 
 
 class Settings(BaseSettings):
@@ -41,6 +41,9 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 
-@lru_cache()
+# Create settings once at module load — env vars are available at this point
+_settings = Settings()
+
+
 def get_settings() -> Settings:
-    return Settings()
+    return _settings

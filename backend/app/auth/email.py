@@ -1,11 +1,11 @@
-import aiosmtplib
+import smtplib
 from email.message import EmailMessage
 from app.config import get_settings
 
 settings = get_settings()
 
 
-async def send_reset_email(to_email: str, reset_token: str):
+def send_reset_email(to_email: str, reset_token: str):
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
     msg = EmailMessage()
@@ -28,11 +28,7 @@ async def send_reset_email(to_email: str, reset_token: str):
         subtype="html",
     )
 
-    await aiosmtplib.send(
-        msg,
-        hostname=settings.SMTP_HOST,
-        port=settings.SMTP_PORT,
-        username=settings.SMTP_USER,
-        password=settings.SMTP_PASSWORD,
-        start_tls=True,
-    )
+    with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+        server.starttls()
+        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+        server.send_message(msg)

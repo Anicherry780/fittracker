@@ -47,12 +47,12 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
+def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if user:
         token = create_reset_token(user.email)
         try:
-            await send_reset_email(user.email, token)
+            send_reset_email(user.email, token)
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     # Always return success to prevent email enumeration

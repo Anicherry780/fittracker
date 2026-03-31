@@ -28,11 +28,9 @@ class Settings(BaseSettings):
     AWS_REGION: str = "us-east-1"
     BEDROCK_MODEL_ID: str = "us.anthropic.claude-3-haiku-20240307-v1:0"
 
-    # Email (Gmail SMTP)
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = ""
-    SMTP_PASSWORD: str = ""
+    # Email (Resend)
+    RESEND_API_KEY: str = ""
+    EMAIL_FROM: str = "FitTracker <noreply@anirudhdev.com>"
 
     # Frontend
     FRONTEND_URL: str = "http://localhost:3000"

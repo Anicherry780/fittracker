@@ -9,7 +9,7 @@ def send_reset_email(to_email: str, reset_token: str):
     reset_url = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
     msg = EmailMessage()
-    msg["From"] = settings.SMTP_USER
+    msg["From"] = f"FitTracker <{settings.SMTP_USER}>"
     msg["To"] = to_email
     msg["Subject"] = "FitTracker - Reset Your Password"
     msg.set_content(

@@ -38,6 +38,9 @@ export default function FoodScannerPage() {
   const [loggedItems, setLoggedItems] = useState<Set<number>>(new Set());
   const [mealType, setMealType] = useState("lunch");
 
+  // Editable results
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+
   // Fallback manual entry state
   const [showFallback, setShowFallback] = useState(false);
   const [fallbackName, setFallbackName] = useState("");
@@ -114,14 +117,8 @@ export default function FoodScannerPage() {
     try {
       const formData = new FormData();
       formData.append("file", selectedFile);
-      // Auto-log all detected items
-      const data = await api.postForm<AnalysisResult>(
-        `/food/analyze?meal_type=${mealType}&auto_log=true`,
-        formData
-      );
+      const data = await api.postForm<AnalysisResult>("/food/analyze", formData);
       setResult(data);
-      // Mark all items as logged since auto_log=true
-      setLoggedItems(new Set(data.foods.map((_, i) => i)));
     } catch {
       setShowFallback(true);
     } finally {
@@ -155,20 +152,35 @@ export default function FoodScannerPage() {
     }
   };
 
+  const updateFoodItem = (index: number, field: keyof FoodItem, value: string | number) => {
+    if (!result) return;
+    const updated = [...result.foods];
+    updated[index] = { ...updated[index], [field]: value };
+    setResult({
+      ...result,
+      foods: updated,
+      total_calories: updated.reduce((s, f) => s + Number(f.calories), 0),
+      total_protein: updated.reduce((s, f) => s + Number(f.protein_g), 0),
+      total_fat: updated.reduce((s, f) => s + Number(f.fat_g), 0),
+      total_carbs: updated.reduce((s, f) => s + Number(f.carbs_g), 0),
+    });
+  };
+
   const logFoodItem = async (item: FoodItem, index: number) => {
     try {
       await api.post("/food/log", {
         meal_type: mealType,
         food_name: item.name,
-        calories: item.calories,
-        protein_g: item.protein_g,
-        fat_g: item.fat_g,
-        carbs_g: item.carbs_g,
+        calories: Number(item.calories),
+        protein_g: Number(item.protein_g),
+        fat_g: Number(item.fat_g),
+        carbs_g: Number(item.carbs_g),
         portion: item.portion,
         image_url: result?.image_url,
         detected_by: "ai",
       });
       setLoggedItems((prev) => new Set(prev).add(index));
+      setEditingIdx(null);
     } catch (err: any) {
       setError(err.message || "Failed to log food item");
     }
@@ -323,40 +335,79 @@ export default function FoodScannerPage() {
                   <h2 className="font-semibold text-[var(--accent-green)]">
                     Detected {result.foods.length} item{result.foods.length !== 1 ? "s" : ""}
                   </h2>
-                  <span className="text-xs text-[var(--text-muted)] bg-[var(--accent-green)]/10 px-2 py-1 rounded-lg">
-                    Auto-logged to {mealType}
+                  <span className="text-xs text-[var(--text-muted)]">
+                    Tap to edit, + to save
                   </span>
                 </div>
                 <div className="space-y-3">
                   {result.foods.map((food, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-4 rounded-xl bg-[var(--bg-secondary)]"
-                    >
-                      <div className="flex-1">
-                        <p className="font-medium capitalize">{food.name}</p>
-                        <p className="text-xs text-[var(--text-muted)] mt-1">
-                          {food.portion && <span>{food.portion} · </span>}
-                          P: {food.protein_g}g · F: {food.fat_g}g · C: {food.carbs_g}g
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-lg font-bold text-[var(--accent-green)]">
-                          {Math.round(food.calories)}
-                          <span className="text-xs text-[var(--text-muted)] ml-0.5">kcal</span>
-                        </span>
-                        <button
-                          onClick={() => logFoodItem(food, idx)}
-                          disabled={loggedItems.has(idx)}
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-                            loggedItems.has(idx)
-                              ? "bg-[var(--accent-green)] text-[var(--bg-primary)]"
-                              : "bg-[var(--bg-card)] hover:bg-[var(--accent-green)]/20 text-[var(--accent-green)]"
-                          }`}
-                        >
-                          {loggedItems.has(idx) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-                        </button>
-                      </div>
+                    <div key={idx} className="p-4 rounded-xl bg-[var(--bg-secondary)]">
+                      {editingIdx === idx ? (
+                        <div className="space-y-2">
+                          <input className="input-field text-sm" value={food.name}
+                            onChange={(e) => updateFoodItem(idx, "name", e.target.value)} placeholder="Food name" />
+                          <input className="input-field text-sm" value={food.portion || ""}
+                            onChange={(e) => updateFoodItem(idx, "portion", e.target.value)} placeholder="Portion" />
+                          <div className="grid grid-cols-4 gap-2">
+                            <div>
+                              <label className="text-[10px] text-[var(--text-muted)]">Cal</label>
+                              <input className="input-field text-sm text-center" type="number" value={food.calories}
+                                onChange={(e) => updateFoodItem(idx, "calories", parseFloat(e.target.value) || 0)} />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-[var(--text-muted)]">Protein</label>
+                              <input className="input-field text-sm text-center" type="number" value={food.protein_g}
+                                onChange={(e) => updateFoodItem(idx, "protein_g", parseFloat(e.target.value) || 0)} />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-[var(--text-muted)]">Fat</label>
+                              <input className="input-field text-sm text-center" type="number" value={food.fat_g}
+                                onChange={(e) => updateFoodItem(idx, "fat_g", parseFloat(e.target.value) || 0)} />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-[var(--text-muted)]">Carbs</label>
+                              <input className="input-field text-sm text-center" type="number" value={food.carbs_g}
+                                onChange={(e) => updateFoodItem(idx, "carbs_g", parseFloat(e.target.value) || 0)} />
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button onClick={() => logFoodItem(food, idx)}
+                              className="btn-primary flex-1 text-sm flex items-center justify-center gap-1">
+                              <Check className="w-3.5 h-3.5" /> Save
+                            </button>
+                            <button onClick={() => setEditingIdx(null)}
+                              className="btn-secondary text-sm">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 cursor-pointer" onClick={() => !loggedItems.has(idx) && setEditingIdx(idx)}>
+                            <p className="font-medium capitalize">{food.name}</p>
+                            <p className="text-xs text-[var(--text-muted)] mt-1">
+                              {food.portion && <span>{food.portion} · </span>}
+                              P: {food.protein_g}g · F: {food.fat_g}g · C: {food.carbs_g}g
+                              {!loggedItems.has(idx) && <span className="text-[var(--accent-green)] ml-1">(tap to edit)</span>}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-lg font-bold text-[var(--accent-green)]">
+                              {Math.round(food.calories)}
+                              <span className="text-xs text-[var(--text-muted)] ml-0.5">kcal</span>
+                            </span>
+                            <button
+                              onClick={() => logFoodItem(food, idx)}
+                              disabled={loggedItems.has(idx)}
+                              className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
+                                loggedItems.has(idx)
+                                  ? "bg-[var(--accent-green)] text-[var(--bg-primary)]"
+                                  : "bg-[var(--bg-card)] hover:bg-[var(--accent-green)]/20 text-[var(--accent-green)]"
+                              }`}
+                            >
+                              {loggedItems.has(idx) ? <Check className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

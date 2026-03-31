@@ -9,9 +9,8 @@ import { Dumbbell, Flame, Clock, Search, Plus, Trash2 } from "lucide-react";
 
 interface Exercise {
   name: string;
-  display_name: string;
-  met_value: number;
-  category: string;
+  key: string;
+  met: number;
 }
 
 interface ExerciseLog {
@@ -34,7 +33,6 @@ export default function WorkoutPage() {
   const [reps, setReps] = useState("");
   const [sets, setSets] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeCategory, setActiveCategory] = useState("All");
 
   useEffect(() => {
     if (!isAuthenticated()) {
@@ -88,12 +86,9 @@ export default function WorkoutPage() {
     }
   };
 
-  const categories = ["All", ...new Set(exercises.map((e) => e.category))];
-  const filtered = exercises.filter((e) => {
-    const matchSearch = e.display_name.toLowerCase().includes(search.toLowerCase());
-    const matchCategory = activeCategory === "All" || e.category === activeCategory;
-    return matchSearch && matchCategory;
-  });
+  const filtered = exercises.filter((e) =>
+    e.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const totalBurned = logs.reduce((sum, l) => sum + l.calories_burned, 0);
 
@@ -133,37 +128,20 @@ export default function WorkoutPage() {
               />
             </div>
 
-            {/* Categories */}
-            <div className="flex gap-1.5 mb-3 flex-wrap">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
-                    activeCategory === cat
-                      ? "bg-[var(--accent-green)] text-[var(--bg-primary)] font-semibold"
-                      : "bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-
             {/* Exercise List */}
             <div className="max-h-48 overflow-y-auto mb-4 space-y-1">
-              {filtered.slice(0, 15).map((ex) => (
+              {filtered.slice(0, 20).map((ex) => (
                 <button
-                  key={ex.name}
-                  onClick={() => setSelectedExercise(ex.name)}
+                  key={ex.key}
+                  onClick={() => setSelectedExercise(ex.key)}
                   className={`w-full text-left px-3 py-2 rounded-lg text-sm flex justify-between transition-all ${
-                    selectedExercise === ex.name
+                    selectedExercise === ex.key
                       ? "bg-[var(--accent-green)]/10 text-[var(--accent-green)] border border-[var(--accent-green)]/30"
                       : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                   }`}
                 >
-                  <span>{ex.display_name}</span>
-                  <span className="text-xs text-[var(--text-muted)]">MET {ex.met_value}</span>
+                  <span>{ex.name}</span>
+                  <span className="text-xs text-[var(--text-muted)]">MET {ex.met}</span>
                 </button>
               ))}
             </div>

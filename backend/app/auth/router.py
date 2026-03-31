@@ -51,7 +51,10 @@ async def forgot_password(data: ForgotPassword, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == data.email).first()
     if user:
         token = create_reset_token(user.email)
-        await send_reset_email(user.email, token)
+        try:
+            await send_reset_email(user.email, token)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
     # Always return success to prevent email enumeration
     return {"message": "If that email exists, a reset link has been sent"}
 

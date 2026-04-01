@@ -30,10 +30,10 @@ class Settings(BaseSettings):
 
     # Email (Resend)
     RESEND_API_KEY: str = ""
-    EMAIL_FROM: str = "FitTracker <noreply@anirudhdev.com>"
+    EMAIL_FROM: str = "FitTracker <onboarding@resend.dev>"
 
     # Frontend
-    FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_URL: str = "https://fit.anirudhdev.com"
 
     class Config:
         env_file = ".env"

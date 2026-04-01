@@ -27,8 +27,8 @@ def _get_daily_summary(user: User, target_date: date, db: Session) -> DailySumma
         ExerciseLog.logged_at <= day_end,
     ).order_by(ExerciseLog.logged_at).all()
 
-    calories_consumed = sum(m.calories for m in meals)
-    calories_burned = sum(e.calories_burned for e in exercises)
+    calories_consumed = round(sum(m.calories for m in meals), 1)
+    calories_burned = round(sum(e.calories_burned for e in exercises), 1)
 
     # Calculate calorie target
     if user.calorie_goal:
@@ -41,24 +41,21 @@ def _get_daily_summary(user: User, target_date: date, db: Session) -> DailySumma
     else:
         calorie_target = 2000
 
-    remaining = calorie_target + calories_burned - calories_consumed
+    remaining = round(calorie_target + calories_burned - calories_consumed, 1)
 
-    tdee = calorie_target
-
-    return {
-        "date": target_date.isoformat(),
-        "total_calories_in": round(calories_consumed, 1),
-        "total_calories_burned": round(calories_burned, 1),
-        "total_protein": round(sum(m.protein_g for m in meals), 1),
-        "total_fat": round(sum(m.fat_g for m in meals), 1),
-        "total_carbs": round(sum(m.carbs_g for m in meals), 1),
-        "net_calories": round(calories_consumed - calories_burned, 1),
-        "calorie_target": calorie_target,
-        "remaining_calories": round(remaining, 1),
-        "tdee": tdee,
-        "meals": [FoodLogResponse.model_validate(m) for m in meals],
-        "exercises": [ExerciseLogResponse.model_validate(e) for e in exercises],
-    }
+    return DailySummary(
+        date=target_date.isoformat(),
+        calories_consumed=calories_consumed,
+        calories_burned=calories_burned,
+        net_calories=round(calories_consumed - calories_burned, 1),
+        calorie_target=calorie_target,
+        remaining_calories=remaining,
+        protein_g=round(sum(m.protein_g for m in meals), 1),
+        fat_g=round(sum(m.fat_g for m in meals), 1),
+        carbs_g=round(sum(m.carbs_g for m in meals), 1),
+        meals=[FoodLogResponse.model_validate(m) for m in meals],
+        exercises=[ExerciseLogResponse.model_validate(e) for e in exercises],
+    )
 
 
 @router.get("/today")

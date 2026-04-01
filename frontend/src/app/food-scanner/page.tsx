@@ -145,8 +145,8 @@ export default function FoodScannerPage() {
         total_carbs: item.carbs_g,
       });
       setShowFallback(false);
-    } catch (err: any) {
-      setError(err.message || "Estimation failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Estimation failed");
     } finally {
       setEstimating(false);
     }
@@ -181,8 +181,8 @@ export default function FoodScannerPage() {
       });
       setLoggedItems((prev) => new Set(prev).add(index));
       setEditingIdx(null);
-    } catch (err: any) {
-      setError(err.message || "Failed to log food item");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to log food item");
     }
   };
 

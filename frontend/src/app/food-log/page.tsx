@@ -46,14 +46,6 @@ export default function FoodLogPage() {
     portion: "",
   });
 
-  useEffect(() => {
-    if (!isAuthenticated()) {
-      router.push("/login");
-      return;
-    }
-    loadLogs();
-  }, [date, router]);
-
   const loadLogs = async () => {
     try {
       const data = await api.get<FoodLog[]>(`/food/log?log_date=${date}`);
@@ -62,6 +54,15 @@ export default function FoodLogPage() {
       console.error(err);
     }
   };
+
+  useEffect(() => {
+    if (!isAuthenticated()) {
+      router.push("/login");
+      return;
+    }
+    loadLogs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, router]);
 
   const estimateNutrition = async (foodName: string, portion: string) => {
     if (!foodName || !portion) return;

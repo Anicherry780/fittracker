@@ -9,8 +9,7 @@ export interface User {
   age: number | null;
   gender: string | null;
   activity_level: number | null;
-  calorie_target: number | null;
-  created_at: string;
+  calorie_goal: number | null;
 }
 
 export function setAuth(token: string, user: User) {

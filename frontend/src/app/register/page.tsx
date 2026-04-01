@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { setAuth } from "@/lib/auth";
+import { setAuth, User } from "@/lib/auth";
 import { Flame, Eye, EyeOff, Check, X } from "lucide-react";
 
 export default function RegisterPage() {
@@ -32,15 +32,15 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const data = await api.post<{ access_token: string; user: any }>("/auth/register", {
+      const data = await api.post<{ access_token: string; user: User }>("/auth/register", {
         username,
         email,
         password,
       });
       setAuth(data.access_token, data.user);
       router.push("/profile");
-    } catch (err: any) {
-      setError(err.message || "Registration failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
       setLoading(false);
     }

@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { isAuthenticated, getUser, setAuth, getToken } from "@/lib/auth";
+import { isAuthenticated, getUser, setAuth, getToken, type User } from "@/lib/auth";
 import Navbar from "@/components/Navbar";
-import { User, Save, Calculator } from "lucide-react";
+import { User as UserIcon, Save, Calculator } from "lucide-react";
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -30,20 +30,20 @@ export default function ProfilePage() {
       setAge(user.age?.toString() || "");
       setGender(user.gender || "male");
       setActivityLevel(user.activity_level?.toString() || "1.55");
-      setCalorieTarget(user.calorie_target?.toString() || "");
+      setCalorieTarget(user.calorie_goal?.toString() || "");
     }
   }, [router]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updated = await api.patch<any>("/auth/profile", {
+      const updated = await api.patch<User>("/auth/profile", {
         weight_kg: weight ? parseFloat(weight) : null,
         height_cm: height ? parseFloat(height) : null,
         age: age ? parseInt(age) : null,
         gender: gender || null,
         activity_level: activityLevel ? parseFloat(activityLevel) : null,
-        calorie_target: calorieTarget ? parseInt(calorieTarget) : null,
+        calorie_goal: calorieTarget ? parseInt(calorieTarget) : null,
       });
       const token = getToken();
       if (token) setAuth(token, updated);
@@ -65,8 +65,8 @@ export default function ProfilePage() {
     const al = parseFloat(activityLevel);
     const bmr =
       gender === "male"
-        ? 88.362 + 13.397 * w + 4.799 * h - 5.677 * a
-        : 447.593 + 9.247 * w + 3.098 * h - 4.33 * a;
+        ? 10 * w + 6.25 * h - 5 * a + 5
+        : 10 * w + 6.25 * h - 5 * a - 161;
     return Math.round(bmr * al);
   };
 
@@ -84,7 +84,7 @@ export default function ProfilePage() {
         <div className="glass-card p-6 space-y-5">
           <div className="flex items-center gap-3 pb-4 border-b border-[var(--border-color)]">
             <div className="w-10 h-10 rounded-xl bg-[var(--accent-green)]/10 flex items-center justify-center">
-              <User className="w-5 h-5 text-[var(--accent-green)]" />
+              <UserIcon className="w-5 h-5 text-[var(--accent-green)]" />
             </div>
             <div>
               <p className="font-semibold">{getUser()?.username}</p>
@@ -173,7 +173,7 @@ export default function ProfilePage() {
                   Estimated TDEE: <span className="text-[var(--accent-green)]">{tdee} kcal/day</span>
                 </p>
                 <p className="text-xs text-[var(--text-muted)]">
-                  Based on Harris-Benedict equation with your activity level
+                  Based on Mifflin-St Jeor equation with your activity level
                 </p>
               </div>
             </div>

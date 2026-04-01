@@ -7,20 +7,19 @@ import { isAuthenticated } from "@/lib/auth";
 import Navbar from "@/components/Navbar";
 import CalorieRing from "@/components/CalorieRing";
 import MacroCards from "@/components/MacroCards";
-import { Camera, Dumbbell, Plus, TrendingUp, Utensils } from "lucide-react";
+import { Camera, Dumbbell, TrendingUp, Utensils } from "lucide-react";
 import Link from "next/link";
 
 interface DailySummary {
   date: string;
-  total_calories_in: number;
-  total_calories_burned: number;
-  total_protein: number;
-  total_fat: number;
-  total_carbs: number;
+  calories_consumed: number;
+  calories_burned: number;
   net_calories: number;
   calorie_target: number;
   remaining_calories: number;
-  tdee: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
 }
 
 interface FoodLog {
@@ -106,15 +105,15 @@ export default function DashboardPage() {
           <div className="lg:col-span-1 space-y-6">
             <div className="glass-card p-6 glow-green">
               <CalorieRing
-                consumed={summary?.total_calories_in || 0}
+                consumed={summary?.calories_consumed || 0}
                 target={summary?.calorie_target || 2000}
-                burned={summary?.total_calories_burned || 0}
+                burned={summary?.calories_burned || 0}
               />
             </div>
             <MacroCards
-              protein={summary?.total_protein || 0}
-              fat={summary?.total_fat || 0}
-              carbs={summary?.total_carbs || 0}
+              protein={summary?.protein_g || 0}
+              fat={summary?.fat_g || 0}
+              carbs={summary?.carbs_g || 0}
             />
           </div>
 

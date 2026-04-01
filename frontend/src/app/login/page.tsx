@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
-import { setAuth } from "@/lib/auth";
+import { setAuth, User } from "@/lib/auth";
 import { Flame, Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
@@ -21,14 +21,14 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      const data = await api.post<{ access_token: string; user: any }>("/auth/login", {
+      const data = await api.post<{ access_token: string; user: User }>("/auth/login", {
         username,
         password,
       });
       setAuth(data.access_token, data.user);
       router.push("/dashboard");
-    } catch (err: any) {
-      setError(err.message || "Login failed");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
